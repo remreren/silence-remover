@@ -9,10 +9,10 @@ import subprocess
 import shutil
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-i", "--input", required=True, type=str)
-parser.add_argument("-o", "--output", required=True, type=str)
-parser.add_argument("-y", "--yes", action="store_true")
-parser.add_argument("-d", "--debug", action="store_true")
+parser.add_argument("-i", "--input", required=True, type=str, help="Input path")
+parser.add_argument("-o", "--output", required=True, type=str, help="Output path")
+parser.add_argument("-y", "--yes", action="store_true", help="Override automatically if the output file exists.")
+parser.add_argument("-d", "--debug", action="store_true", help="Enables the debug mode that extracts the cuts and glues them together and saves to see if there is anything wrong")
 
 args = parser.parse_args()
 
@@ -41,22 +41,8 @@ def find_decibel_threshold(rms, percentage):
     lwb = med - thr # lowerbound for outliers
 
     dbs_outliers_removed = dbs[(dbs > lwb) & (dbs < upb)]
-
-    # fig, ax = plt.subplots(2, 2)
-
-    # ax[0, 0].hist(dbs, bins=100)
-    # ax[0, 0].set_title("dbs")
-    # ax[0, 1].hist(rms[0], bins=100)
-    # ax[0, 1].set_title("rms")
-
-    # ax[1, 1].hist(dbs_outliers_removed, bins=100)
-    # ax[1, 1].set_title("decibels outliers removed")
-
-    # fig.show()
-    # input()
-
     min_db = np.min(dbs_outliers_removed)
-
+    
     return min_db * percentage
 
 def find_silences(threshold_db):
@@ -104,9 +90,6 @@ rms = librosa.feature.rms(y = ts)
 
 threshold_db = find_decibel_threshold(rms, 0.2)
 silences = find_silences(threshold_db)
-# attack_time = 0.01
-# release_time = 0.1
-# padding_value = 0.1
 
 sounds = invert_silences(silences)
 
