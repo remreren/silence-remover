@@ -1,10 +1,10 @@
 import argparse
-import math
+# import math
 import librosa
 import os
 import re
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import subprocess
 import shutil
 
@@ -13,19 +13,6 @@ parser.add_argument("-i", "--input", required=True, type=str, help="Input path")
 parser.add_argument("-o", "--output", required=True, type=str, help="Output path")
 parser.add_argument("-y", "--yes", action="store_true", help="Override automatically if the output file exists.")
 parser.add_argument("-d", "--debug", action="store_true", help="Enables the debug mode that extracts the cuts and glues them together and saves to see if there is anything wrong")
-
-args = parser.parse_args()
-
-input_file = args.input
-output_file = args.output
-
-temp_audio_file = "./temp/audio.wav"
-
-if os.path.exists("./temp"):
-    shutil.rmtree("./temp")
-
-os.mkdir("./temp")
-os.system(f"ffmpeg -i {input_file} {temp_audio_file}")
 
 def find_decibel_threshold(rms, percentage):
     dbs  = librosa.power_to_db(rms)[0]
@@ -45,14 +32,14 @@ def find_decibel_threshold(rms, percentage):
     
     return min_db * percentage
 
-def find_silences(threshold_db):
+def find_silences(threshold_db, temp_audio_file, yes):
     command = [
         "ffmpeg", "-i", temp_audio_file, "-af",
         f"silencedetect=noise=0.001:n={threshold_db}dB",
         "-f", "null", "-"
     ]
 
-    if args.yes:
+    if yes:
         command.insert(1, "-y")
         print(command)
 
@@ -85,30 +72,61 @@ def invert_silences(silences):
 
     return silences_inverted
 
-ts, sr = librosa.load(temp_audio_file)
-rms = librosa.feature.rms(y = ts)
+def convert(input_file, output_file, temp_folder = "./temp", yes=False, debug=False):
 
-threshold_db = find_decibel_threshold(rms, 0.2)
-silences = find_silences(threshold_db)
+    if os.path.exists(temp_folder):
+        shutil.rmtree(temp_folder)
 
-sounds = invert_silences(silences)
+    os.mkdir(temp_folder)
 
-cuts = "+".join([f"between(t,{sec[0]},{sec[1]})" for sec in sounds])
-audio_cuts = "aselect='" + cuts + "', asetpts=N/SR/TB"
-video_cuts = "select='" + cuts + "', setpts=N/FRAME_RATE/TB"
+    temp_audio_file = os.path.join(temp_folder, "audio.wav")
 
-with open("./temp/audio.txt", "w+") as fp:
-    fp.write(audio_cuts)
+    temp_audio = os.path.join(temp_folder, "audio.txt")
+    temp_video = os.path.join(temp_folder, "video.txt")
 
-with open("./temp/video.txt", "w+") as fp:
-    fp.write(video_cuts)
+    print(f"ffmpeg -i '{input_file}' '{temp_audio_file}'")
+    os.system(f"ffmpeg -i '{input_file}' '{temp_audio_file}'")
 
-os.system(f"ffmpeg {'-y ' if args.yes else ''}-i {input_file} -filter_script:a ./temp/audio.txt -filter_script:v ./temp/video.txt {output_file}")
+    ts, sr = librosa.load(temp_audio_file)
+    rms = librosa.feature.rms(y = ts)
 
-if args.debug:
-    debug_cuts = "aselect='" + "+".join([f"between(t,{sec[0]},{sec[1]})" for sec in silences]) + "', asetpts=N/SR/TB"
-    
-    with open("./temp/debug_cuts.txt", "w+") as fp:
-        fp.write(debug_cuts)
-    
-    os.system(f"ffmpeg -y -i {temp_audio_file} -filter_script:a ./temp/debug_cuts.txt ./temp/debug_audio.wav")
+    threshold_db = find_decibel_threshold(rms, 0.2)
+    silences = find_silences(threshold_db, temp_audio_file, yes)
+
+    sounds = invert_silences(silences)
+
+    cuts = "+".join([f"between(t,{sec[0]},{sec[1]})" for sec in sounds])
+    audio_cuts = "aselect='" + cuts + "', asetpts=N/SR/TB"
+    video_cuts = "select='" + cuts + "', setpts=N/FRAME_RATE/TB"
+
+    with open(temp_audio, "w+") as fp:
+        fp.write(audio_cuts)
+
+    with open(temp_video, "w+") as fp:
+        fp.write(video_cuts)
+
+    if not os.path.exists(os.path.dirname(output_file)):
+        os.mkdir(os.path.dirname(output_file))
+    os.system(f"ffmpeg {'-y ' if yes else ''}-i '{input_file}' -filter_script:a '{temp_audio}' -filter_script:v '{temp_video}' '{output_file}'")
+
+    if debug:
+        temp_debug_cuts=os.path.join(temp_folder, 'debug_cuts.txt')
+        debug_cuts = "aselect='" + "+".join([f"between(t,{sec[0]},{sec[1]})" for sec in silences]) + "', asetpts=N/SR/TB"
+        
+        with open(temp_debug_cuts, "w+") as fp:
+            fp.write(debug_cuts)
+        
+        debug_cuts = os.path.join(temp_folder, "debug_cuts.txt")
+        debug_audio = os.path.join(temp_folder, "debug_audio.wav")
+        os.system(f"ffmpeg -y -i '{temp_audio_file}' -filter_script:a '{debug_cuts}' '{debug_audio}'")
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+
+    input_file = args.input
+    output_file = args.output
+
+    yes = args.yes
+    debug = args.debug
+
+    convert(input_file, output_file, yes=yes, debug=debug)
